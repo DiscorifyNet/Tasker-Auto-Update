@@ -1,0 +1,219 @@
+    Task: Tasker Auto Update
+    
+    <// Set the update data>
+    A1: JavaScriptlet [
+         Code: var updaterData = [
+           {
+             "taskernet_url": "https://taskernet.com/shares/?user=AS35m8n7%2B%2FhaeKBj3hNzHKtnU27LX%2BE4bd60KiPGki8mGxMAzSIDZAELwOTVhQxZ25YrHYlft5k%3D&id=Task%3ATask+Updater#",
+             "version": "0.9",
+             "changelog": "Beta Release"
+           }
+         ];
+         
+         for (var key in updaterData[0]) {
+           if (updaterData[0].hasOwnProperty(key)) {
+             var variableName = key;
+             var value = updaterData[0][key];
+             setLocal(variableName, value);
+           }
+         }
+         
+         
+         exit();
+         Timeout (Seconds): 50 ]
+    
+    <// Get the system language>
+    A2: Run Shell [
+         Command: getprop persist.sys.locale
+         Timeout (Seconds): 0
+         Store Output In: %locale
+         Use Global Namespace: On ]
+    
+    <// Set the strings for multilingual support>
+    A3: JavaScriptlet [
+         Code: var translations = {
+           "en": {
+             "title": "New Update Is Available",
+             "update": "Update",
+             "skip": "Skip",
+             "whatsnew": "What's New"
+           },
+           "de": {
+             "title": "Neues Update ist verfügbar",
+             "update": "Update",
+             "skip": "Überspringen",
+             "whatsnew": "Was ist Neu"
+           }
+         };
+         
+         function extractLanguage(input) {
+             const parts = input.split('-');
+             const languageCode = parts[0].toLowerCase();
+         
+             return languageCode;
+         }
+         
+         function setTranslations(selectedLanguage, fallbackLanguage) {
+           selectedLanguage = extractLanguage(selectedLanguage);
+         
+           if (!translations[selectedLanguage]) {
+             flash("Selected language not found, falling back to default.");
+             selectedLanguage = fallbackLanguage;
+           }
+         
+           for (var key in translations[fallbackLanguage]) {
+             setLocal(key, translations[selectedLanguage]?.[key] || translations[fallbackLanguage][key]);
+           }
+         }
+         
+         var selectedLanguage = local("locale"); 
+         var fallbackLanguage = "en";
+         
+         setTranslations(selectedLanguage, fallbackLanguage);
+         
+         exit();
+         Timeout (Seconds): 50 ]
+    
+    <// Get taskernet xml url>
+    A4: JavaScriptlet [
+         Code: var inputUrl = local("taskernet_url");
+         
+         // Remove the trailing '#' character, if present
+         inputUrl = inputUrl.replace(/#$/, '');
+         
+         // Extract the "user" and "id" parameters from the URL
+         var userMatch = inputUrl.match(/user=([^&]+)/);
+         var idMatch = inputUrl.match(/id=([^&]+)/);
+         
+         // Check if the required parameters are present
+         if (userMatch && idMatch) {
+             // Create the dynamic URL
+             var dynamicUrl = "https://taskernet.com/_ah/api/datashare/v1/sharedata/" + userMatch[1] + "/" + idMatch[1] + "?a=0&xml=true";
+             setLocal("taskernet_xml", dynamicUrl);
+         } else {
+             flash("Invalid URL");
+         }
+         
+         exit();
+         Timeout (Seconds): 45 ]
+    
+    A5: HTTP Request [
+         Method: GET
+         URL: %taskernet_xml
+         Timeout (Seconds): 60
+         Structure Output (JSON, etc): On ]
+    
+    <// Get taskernet version number>
+    A6: Simple Match/Regex [
+         Type: Regex
+         Text: %http_data
+         Regex: version\\": \\"([^\\"]+)\\
+         Match Pattern: version\\": \\"([^\\"]+)\\ ]
+    
+    A7: Variable Set [
+         Name: %taskernet_version
+         To: %mt_groups(1)
+         Structure Output (JSON, etc): On ]
+    
+    <// Compare currentVersion with targetVersion; if targetVersion is higher, then set result to true
+    
+    » Version 1.2.3.ab
+    1 → Major Update
+    2 → Feature Update
+    3 → Fix/Bug Updates
+    4 → Alpha/Beta Status
+    ↳ 1.2.3.ab = Major.Minor.Patch.AlphaBeta releases>
+    A8: JavaScriptlet [
+         Code: var currentVersion = local("version");
+         var targetVersion = local("taskernet_version");
+         
+         function isValidVersion(version) {
+             return /^[0-9]+([.][0-9]+|[a-z])*$/.test(version);
+         }
+         
+         function compareVersions(current, target) {
+             if (!isValidVersion(current) || !isValidVersion(target)) {
+                 flash("Invalid version number(s)");
+                 return;
+             }
+         
+             var currentParts = current.split(/\.|([a-z])/).filter(Boolean);
+             var targetParts = target.split(/\.|([a-z])/).filter(Boolean);
+         
+             for (var i = 0; i < Math.max(currentParts.length, targetParts.length); i++) {
+                 var currentVal = currentParts[i] || 0;
+                 var targetVal = targetParts[i] || 0;
+         
+                 if (isNaN(currentVal)) {
+                     // If it's a letter, compare as strings
+                     if (currentVal > targetVal) {
+                         setLocal("updatestatus", false);
+                         return;
+                     } else if (currentVal < targetVal) {
+                         setLocal("updatestatus", true);
+                         return;
+                     }
+                 } else {
+                     // If it's a number, compare as numbers
+                     currentVal = parseInt(currentVal);
+                     targetVal = parseInt(targetVal);
+         
+                     if (currentVal > targetVal) {
+                         setLocal("updatestatus", false);
+                         return;
+                     } else if (currentVal < targetVal) {
+                         setLocal("updatestatus", true);
+                         return;
+                     }
+                 }
+             }
+         
+             setLocal("updatestatus", false);
+         }
+         
+         compareVersions(currentVersion, targetVersion);
+         
+         exit();
+         Timeout (Seconds): 50 ]
+    
+    A9: If [ %updatestatus ~ true ]
+    
+        A10: Notify [
+              Title: %title
+              Text: Version: %taskernet_version
+             
+             %whatsnew: %changelog
+              Number: 0
+              Priority: 5
+              Repeat Alert: On
+              LED Colour: Red
+              LED Rate: 0
+              Category: super_tasker_notifications_created_by_me_the_developer Actions:(3) ]
+    
+        A11: [X] Status Bar [
+              Set: Expanded ]
+    
+    A12: End If
+    
+    <// Get taskernet import link for tasker>
+    A13: JavaScriptlet [
+          Code: var inputUrl = local("taskernet_url");
+         inputUrl = inputUrl.replace(/#$/, '');
+         var userMatch = inputUrl.match(/user=([^&]+)/);
+         var idMatch = inputUrl.match(/id=([^&]+)/);
+         if (userMatch && idMatch) {
+             var encodedId = idMatch[1].replace(/\+/g, '%20');
+             var taskershareLink = "taskershare://" + userMatch[1] + "/" + encodedId;
+             setLocal("taskernet_importlink", taskershareLink);
+         } else {
+             flash("Invalid URL");
+         }
+         
+         exit();
+          Timeout (Seconds): 45 ]
+    
+    <// Open update in tasker>
+    A14: Browse URL [
+          URL: %taskernet_importlink ]
+    
+    
